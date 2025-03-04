@@ -1,0 +1,268 @@
+https://devblogs.microsoft.com/cppblog/a-tour-of-cpp-modules-in-visual-studio/
+https://learn.microsoft.com/en-us/cpp/build/walkthrough-header-units?view=msvc-170
+https://learn.microsoft.com/en-us/cpp/build/walkthrough-import-stl-header-units?view=msvc-170
+https://learn.microsoft.com/en-us/visualstudio/ide/managing-references-in-a-project?view=vs-2022
+
+https://lists.isocpp.org/sg15/att-1234/C___20_Modules_Build_in_Visual_Studio.pdf
+https://learn.microsoft.com/en-us/cpp/build/reference/c-cpp-prop-page?view=msvc-170#additional-module-dependencies
+https://jantzenowens.com/posts/visual_studio_cpp20/
+
+https://youtu.be/_LGR0U5Opdg?si=oGZ6Iguk6YwegEKK
+
+##################################################
+
+방법 1. 프로젝트 참조 방법(추천)
+
+A-1. 참조용 프로젝트 생성(SharedProj로 칭함)
+
+A-2. 프로젝트 설정 변경
+
+- 일반(General) -> 구성 형식(Configuration Type) : Static library(.lib)
+
+- 일반(General) -> C++ 언어 표준(C++ Language Standard) : C++20 이상
+
+- (선택) C/C++ -> 일반(General) -> 소스의 모듈 종속성 검사(Scan Sources for Module Dependencies) : Yes (cpp 파일에서 사용자 정의 헤더 유닛을 사용하기 위해 필요한 작업임)
+
+- (선택) C/C++ -> 일반(General) -> include 지시문을 import 지시문으로 변환(Translate Includes to Imports) : Yes (MSDN에선 이렇게 나와있는데 꺼도 상관 없었음)
+
+A-3. 테스트 모듈 파일 생성(TestModule.ixx)
+
+code)---------------------------------------------
+export module TestModule;
+
+import <iostream>;
+import <vector>;
+
+export void HelloWorld_FromModule()
+{
+    std::cout << "Hello World From Module!\n";
+}
+--------------------------------------------------
+
+
+B-1. 사용 프로젝트 생성(WorkProj로 칭함)
+
+B-2. 프로젝트 설정 변경
+
+- 일반(General) -> 구성 형식(Configuration Type) : Application(.exe)
+
+- 일반(General) -> C++ 언어 표준(C++ Language Standard) : C++20 이상
+
+- (선택) C/C++ -> 일반(General) -> 소스의 모듈 종속성 검사(Scan Sources for Module Dependencies) : Yes (cpp 파일에서 사용자 정의 헤더 유닛을 사용하기 위해 필요한 작업임)
+
+- (선택) C/C++ -> 일반(General) -> include 지시문을 import 지시문으로 변환(Translate Includes to Imports) : Yes (MSDN에선 이렇게 나와있는데 꺼도 상관 없었음)
+
+B-3. 프로젝트 참조 설정 (★ 핵심 ★)
+
+- WorkProj -> 참조(References) -> 우클릭 -> 참조 추가(Add Reference) -> SharedProj 체크 -> OK
+
+B-4. 테스트 파일 생성(cpp 파일)
+
+code)---------------------------------------------
+import TestModule;
+
+import <iostream>;
+import <vector>;
+
+int main()
+{
+    std::vector<int> numbers = { 0, 1, 2 };
+    std::cout << numbers[1];
+
+    HelloWorld_FromModule();
+
+    return 0;
+}
+--------------------------------------------------
+
+
+A와 B 과정을 거치면 WorkProj에서는 SharedProj에서 생성한 모듈과 해당 모듈에서 import한 C++ 표준 헤더 유닛을 공유해서 사용할 수 있다.
+
+!! 혼동 주의 !!
+WorkProj 쪽에서 공유해서 사용하는 건 BMI 파일의 일종인 .ifc 파일이다.
+모듈 간 의존성을 컴파일 단계에서 파악하기 위해 사용되는 Dependency Table(.dt) 파일은 WorkProj 쪽에서도 생성된다.
+만약 WorkProj 차원에서 <iostream>이나 <vector>를 import 할 때 .dt 파일이 생성되는 것은 자연스러운 현상이니 이상하다고 보면 안 된다.
+
+헤더 유닛(Header Unit)의 본질은 헤더 파일(Header File)이다.
+
+따라서 SharedProj에서 만든 헤더 파일을 WorkProj에서 헤더 유닛으로 사용할 때는 별도의 설정이 필요하다.
+
+SharedProj에 다음 파일을 추가하도록 하자.
+
+SomeFunc.h)---------------------------------------
+#pragma once
+
+void HelloWorld_FromHeader();
+--------------------------------------------------
+
+SomeFunc.cpp)-------------------------------------
+#include <iostream>
+#include "SomeFunc.h"
+
+void HelloWorld_FromHeader()
+{
+    std::cout << "Hello World From Module!\n";
+}
+--------------------------------------------------
+
+C-1. SharedProj에서 만든 헤더 파일을 WorkProj에서 헤더 유닛으로 사용하기.
+
+C-2. 프로젝트 설정 변경(1)
+
+- WorkProj 속성 -> VC++ 디렉터리(VC++ Directories) -> 포함 디렉터리(Include Directories) -> SharedProj의 소스 코드 경로 추가
+
+C-2. 프로젝트 설정 변경(2)
+
+- SharedProj 속성 -> VC++ 디렉터리(VC++ Directories) -> 모든 헤더 파일이 공용임(All Header Files are Public) : Yes
+
+제시된 두 유형의 C-2의 중 하나를 택해서 적용하면 SharedProj에서 만든 헤더 파일을 헤더 유닛으로 사용할 수 있다.
+
+WorkProj의 cpp 파일에서 "SomeFunc.h"를 헤더 유닛으로 사용하려면 다음 설정을 해줄 필요가 있다.
+
+C-3. 프로젝트 설정 변경(모듈 파일에서만 헤더 유닛을 쓸 생각이라면 불필요함)
+
+- WorkProj 속성 -> C/C++ -> 일반(General) -> 소스의 모듈 종속성 검사(Scan Sources for Module Dependencies) : Yes (cpp 파일에서 헤더 유닛을 사용하기 위해 필요한 작업임)
+
+WorkProj의 main 함수가 있는 파일에 헤더 유닛을 적용하도록 한다.
+
+code)---------------------------------------------
+import TestModule;
+
+import <iostream>;
+import <vector>;
+
+import "SomeFunc.h";
+
+int main()
+{
+    std::vector<int> numbers = { 0, 1, 2 };
+    std::cout << numbers[1];
+
+    HelloWorld_FromModule();
+    HelloWorld_FromHeader();
+
+    return 0;
+}
+--------------------------------------------------
+
+(중요) 테스트해봤을 때 사용자 정의 헤더 파일을 헤더 유닛으로 사용하면 이걸 사용한 쪽(여기선 WorkProj)에서도 .ifc 파일이 생성되었다.
+
+C++ 표준 헤더 파일을 헤더 유닛으로 사용할 때는 .ifc 파일을 공유하는 방식이 적용되었는데 이는 큰 차이점이니 일단 숙지하자(컴파일러마다 다를 수 있음).
+
+##################################################
+
+https://learn.microsoft.com/en-us/cpp/build/walkthrough-import-stl-header-units?view=msvc-170#use-a-prebuilt-module-file
+
+방법 2. 모듈을 외부 라이브러리에서 가져와 사용하는 방법
+
+Module 파일(.ixx)만 단독으로 빌드하면 .ifc와 .obj 파일이 생성된다.
+
+ex) cl /std:c++20 /c /interface TestModule.ixx
+
+output) TestModule.ifc, TestModule.obj
+
+.ifc 파일은 모듈의 인터페이스 정보를 담고 있지만 실제 실행 정보는 .obj에 담겨 있다.
+
+링킹 과정이 끝나면 .obj는 .lib에 병합되는 걸 생각하면 외부 라이브러리를 통해 모듈을 가져와 사용할 때는 .ifc와 .lib 파일이 모두 필요하다.
+
+- .ifc는 헤더 파일과 유사한 용도의 의미에서 필요함.
+
+- .lib는 모듈의 실제 실행 정보를 담고 있기 때문에 필요함.
+
+(주의) 헤더 유닛은 .ifc 파일 이름이 복잡하게 작성되기 때문에 가능하면 라이브러리 내부에서만 사용하고 외부에는 배포하지 않도록 한다.
+
+라이브러리를 사용하는 쪽에서는 필요하다면 헤더 유닛이 아닌 헤더 파일을 #include하여 코드에 적용하도록 한다.
+
+테스트해봤을 때 헤더 유닛은 컴파일러와 프로젝트 환경에 의존적이라 적용하기가 매우 힘들었다.
+
+code)---------------------------------------------
+export module TestModule;
+
+// X(외부에서 헤더 유닛을 알 수 있게 하면 안 됨)
+// export import <iostream>;
+// export import <vector>;
+//
+// export import "SomeFunc.h";
+
+// O(헤더 유닛은 라이브러리 내부에서만 사용하는 것이 좋음)
+export import <iostream>;
+export import <vector>;
+
+export import "SomeFunc.h";
+--------------------------------------------------
+
+A-1. 참조용 프로젝트 생성(SharedProj로 칭함)
+
+A-2. 프로젝트 설정 변경
+
+- (선택) C/C++ -> 일반(General) -> 소스의 모듈 종속성 검사(Scan Sources for Module Dependencies) : Yes (cpp 파일에서 사용자 정의 헤더 유닛을 사용하기 위해 필요한 작업임)
+
+- (선택) C/C++ -> 일반(General) -> include 지시문을 import 지시문으로 변환(Translate Includes to Imports) : Yes (MSDN에선 이렇게 나와있는데 꺼도 상관 없었음)
+
+A-3. 테스트 모듈 파일 생성(TestModule.ixx)
+
+code)---------------------------------------------
+export module TestModule;
+
+import <iostream>;
+import <vector>;
+
+export void HelloWorld_FromModule()
+{
+    std::cout << "Hello World From Module!\n";
+}
+--------------------------------------------------
+
+
+
+
+B-1. 사용 프로젝트 생성(WorkProj로 칭함)
+
+B-2. 프로젝트 설정 변경
+
+- 일반(General) -> 구성 형식(Configuration Type) : Application(.exe)
+
+- 일반(General) -> C++ 언어 표준(C++ Language Standard) : C++20 이상
+
+- (선택) C/C++ -> 일반(General) -> 소스의 모듈 종속성 검사(Scan Sources for Module Dependencies) : Yes (cpp 파일에서 사용자 정의 헤더 유닛을 사용하기 위해 필요한 작업임)
+
+- (선택) C/C++ -> 일반(General) -> include 지시문을 import 지시문으로 변환(Translate Includes to Imports) : Yes (MSDN에선 이렇게 나와있는데 꺼도 상관 없었음)
+
+B-3. 라이브러리 경로 및 파일 지정
+
+- VC++ 디렉터리(VC++ Directories) -> 포함 디렉터리(Include Directories) -> SharedProj의 소스 코드 경로 추가 (이건 헤더 파일을 사용할 목적으로 추가하는 것 ㅌㅌㅌㅌ)
+
+- VC++ 디렉터리(VC++ Directories) -> 라이브러리 디렉터리(Library Directories) -> SharedProj의 lib 파일이 생성되는 경로 추가
+
+- 링커(Linker) -> 입력(Input) -> 추가 종속성(Additional Dependencies) : SharedProj.lib 추가
+
+- (선택) C/C++ -> 일반(General) -> 추가 BMI 디렉터리(Additional BMI Directories) : BMI 파일(.ifc)이 포함된 폴더 경로 지정
+  - ex) $(SolutionDir)SharedProj\x64\Debug
+
+- ★  C/C++ -> 일반(General) -> 추가 모듈 종속성(Additional Module Dependencies) : .ifc 파일 지정
+  - ex) ModuleName1=Path\To\ModuleName1.ifc; ModuleName2=Path\To\ModuleName2.ifc
+  - ex) TestModule=TestModule.ixx.ifc
+  - ex) TestModule=$(SolutionDir)SharedProj\x64\Debug\TestModule.ixx.ifc (추가 BMI 디렉터리가 지정되지 않았을 경우 이렇게 전체 경로를 지정해야 함)
+
+(버그?) 추가 BMI 디렉터리와 소스의 모듈 종속성 검사 사이에서 뭔가 꼬이는 게 있는 것 같으니 가능하면 번거롭더라도 Full Path 방식으로 추가 모듈 종속성을 지정하도록 하자.
+
+버그인지 내가 모르는 게 있는 것인지 아니면 안정화가 아직 덜 된 것인지 확실하지 않다.
+
+B-4. 테스트 파일 생성(cpp 파일)
+
+code)---------------------------------------------
+import TestModule;
+
+import <iostream>;
+import <vector>;
+
+int main()
+{
+    std::vector<int> numbers = { 0, 1, 2 };
+    std::cout << numbers[1];
+
+    HelloWorld_FromModule();
+
+    return 0;
+}
+--------------------------------------------------
